@@ -1,8 +1,10 @@
 import json
 import logging
 import os
+import queue
 import shutil
 import subprocess
+import threading
 import zipfile
 from pathlib import Path
 
@@ -210,12 +212,14 @@ def _detect_platform(build_id: str, artifact_path: Path) -> str:
 
 
 def _platform_folder(platform_name: str) -> str:
-    return {
+    mapping = {
         "windows": "windows",
         "linux": "linux",
         "macos": "macos",
+        "osx": "macos",
         "android": "android",
-    }[platform_name]
+    }
+    return mapping.get(platform_name.lower(), platform_name.lower())
 
 
 def _prepare_stage_dir(stage_dir: Path) -> Path:
@@ -302,31 +306,34 @@ def generate_steampipe_vdfs(appid: str, desc: str, setlive: str, depots: list[di
         _write_depot_vdf(depot["depot_id"], depot["os"].lower())
 
 
-def _run_steamcmd_upload() -> None:
-    from config import steamworks_sdk_is_ready
+def _run_steamcmd_upload(app_build_vdf: Path) -> None:
+    from models import GlobalSettings
 
-    username = os.getenv("STEAMCMD_USERNAME", "").strip()
-    password = os.getenv("STEAMCMD_PASSWORD", "").strip()
+    username_setting = GlobalSettings.get_or_none(key="STEAMCMD_USERNAME")
+    password_setting = GlobalSettings.get_or_none(key="STEAMCMD_PASSWORD")
+    
+    username = username_setting.value if username_setting else os.getenv("STEAMCMD_USERNAME", "").strip()
+    password = password_setting.value if password_setting else os.getenv("STEAMCMD_PASSWORD", "").strip()
 
     if not steamworks_sdk_is_ready():
         raise RuntimeError("Steamworks SDK is not ready yet. Upload the SDK before running build uploads.")
 
     if not username:
-        raise RuntimeError("STEAMCMD_USERNAME must be set")
+        raise RuntimeError("STEAMCMD_USERNAME must be set in Global Settings or Environment")
 
     if not STEAMCMD_PATH.exists():
         raise FileNotFoundError(f"SteamCMD not found at {STEAMCMD_PATH}")
 
-    if not APP_BUILD_VDF.exists():
-        raise FileNotFoundError(f"App build VDF not found at {APP_BUILD_VDF}")
+    if not app_build_vdf.exists():
+        raise FileNotFoundError(f"App build VDF not found at {app_build_vdf}")
 
     command = [str(STEAMCMD_PATH.resolve()), "+login", username]
     if password:
         command.append(password)
 
-    command.extend(["+run_app_build", str(APP_BUILD_VDF.resolve()), "+quit"])
+    command.extend(["+run_app_build", str(app_build_vdf.resolve()), "+quit"])
 
-    logger.info("Starting SteamCMD depot upload with %s", APP_BUILD_VDF)
+    logger.info("Starting SteamCMD depot upload with %s", app_build_vdf)
     result = subprocess.run(
         command,
         cwd=str(STEAMCMD_PATH.parent.resolve()),
@@ -362,14 +369,26 @@ def _cleanup_files(artifact_paths: list[Path], staged_dirs: set[Path]) -> None:
             logger.exception("Failed to delete extracted staging directory %s", stage_dir)
 
 
-def upload_artifacts(build_id: str, artifact_paths: list[Path]) -> None:
+def upload_artifacts(
+    project_id: str,
+    build_id: str,
+    artifact_paths: list[Path],
+    appid: str,
+    desc: str,
+    setlive: str,
+    depots_config: list[dict[str, str]]
+) -> None:
     from artifact_manager import has_uploaded_build
 
     if not steamworks_sdk_is_ready():
         raise RuntimeError("Steamworks SDK is not uploaded yet. Build upload is paused.")
 
-    if has_uploaded_build(build_id):
-        logger.info("Build %s was already uploaded; skipping Steam upload", build_id)
+    # Unique build ID across projects
+    full_build_id = f"{project_id}_{build_id}"
+    build_staging_root = STAGING_ROOT / full_build_id
+
+    if has_uploaded_build(full_build_id):
+        logger.info("Build %s was already uploaded; skipping Steam upload", full_build_id)
         return
 
     staged_dirs: set[Path] = set()
@@ -380,15 +399,129 @@ def upload_artifacts(build_id: str, artifact_paths: list[Path]) -> None:
             raise FileNotFoundError(f"Artifact does not exist: {artifact_path}")
 
         platform_name = _detect_platform(build_id, artifact_path)
-        stage_dir = _prepare_stage_dir(STAGING_ROOT / platform_name)
+        stage_dir = build_staging_root / platform_name
+        
+        if platform_name not in staged_platforms:
+            _prepare_stage_dir(stage_dir)
+            staged_platforms.add(platform_name)
+            # Add build-specific root to staged_dirs so it gets cleaned up
+            staged_dirs.add(build_staging_root)
+
+        logger.info("Extracting %s to %s", artifact_path.name, stage_dir)
         _extract_archive(artifact_path, stage_dir)
 
-        staged_platforms.add(platform_name)
-        staged_dirs.add(stage_dir)
-
     if not staged_platforms:
-        raise RuntimeError(f"No artifacts were staged for build {build_id}")
+        raise RuntimeError(f"No artifacts were staged for build {full_build_id}")
 
-    _run_steamcmd_upload()
+    # Generate project-specific VDFs
+    project_scripts_dir = SCRIPTS_DIR / project_id
+    project_scripts_dir.mkdir(parents=True, exist_ok=True)
+    
+    app_vdf_path = project_scripts_dir / f"app_{appid}.vdf"
+    
+    # Redefine _write_app_build_vdf and _write_depot_vdf to take paths
+    def write_app_vdf(path: Path, appid: str, desc: str, setlive: str, depots: list[dict[str, str]]):
+        depot_lines = []
+        for depot in depots:
+            # Try to match depot OS to staged platforms
+            os_key = depot["os"].lower()
+            platform_folder = _platform_folder(os_key)
+            
+            if platform_folder not in staged_platforms:
+                # If we don't have an artifact for this depot's OS, skip it
+                # (or we could include it with empty mapping, but skipping is safer)
+                logger.warning("No artifact found for depot %s (OS: %s); skipping from this build", depot["depot_id"], os_key)
+                continue
+
+            depot_lines.extend([
+                f'        "{depot["depot_id"]}"',
+                "        {",
+                f'            "FileMapping"',
+                "            {",
+                f'                "LocalPath" "{platform_folder}/*"',
+                '                "DepotPath" "."',
+                '                "recursive" "1"',
+                "            }",
+                "        }",
+            ])
+        
+        content = f'''"appbuild"
+{{
+    "appid" "{appid}"
+    "desc" "{desc}"
+    "buildoutput" "{build_staging_root.parent.as_posix()}"
+    "contentroot" "{build_staging_root.as_posix()}"
+    "setlive" "{setlive}"
+    "depots"
+    {{
+{chr(10).join(depot_lines)}
+    }}
+}}
+'''
+        path.write_text(content, encoding="utf-8")
+
+    def write_depot_vdf(depot_id: str, platform_name: str, scripts_dir: Path):
+        platform_folder = _platform_folder(platform_name)
+        depot_vdf = scripts_dir / f"depot_{depot_id}.vdf"
+        depot_vdf.write_text(
+            f'''"DepotBuild"
+{{
+    "DepotID" "{depot_id}"
+    "ContentRoot" "{ (build_staging_root / platform_folder).as_posix() }"
+    "FileMapping"
+    {{
+        "LocalPath" "*"
+        "DepotPath" "."
+        "recursive" "1"
+    }}
+}}
+''',
+            encoding="utf-8",
+        )
+
+    write_app_vdf(app_vdf_path, appid, desc, setlive, depots_config)
+    for depot in depots_config:
+        write_depot_vdf(depot["depot_id"], depot["os"].lower(), project_scripts_dir)
+
+    _run_steamcmd_upload(app_vdf_path)
     _cleanup_files(artifact_paths, staged_dirs)
-    logger.info("Finished Steam depot upload and cleanup for build %s", build_id)
+    logger.info("Finished Steam depot upload and cleanup for build %s", full_build_id)
+
+
+_upload_queue: queue.Queue = queue.Queue()
+
+
+def _upload_worker():
+    from artifact_manager import mark_uploaded
+    logger.info("Starting Steam upload worker thread")
+    while True:
+        try:
+            task = _upload_queue.get()
+            if task is None:
+                break
+            
+            project_id = task.get("project_id")
+            build_id = task.get("build_id")
+            full_build_id = f"{project_id}_{build_id}"
+            
+            logger.info("Upload worker: Processing build %s", full_build_id)
+            try:
+                upload_artifacts(**task)
+                mark_uploaded(full_build_id)
+                logger.info("Upload worker: Successfully uploaded and marked build %s", full_build_id)
+            except Exception:
+                logger.exception("Upload worker: Failed to upload build %s", full_build_id)
+            finally:
+                _upload_queue.task_done()
+        except Exception:
+            logger.exception("Upload worker: unexpected error in worker loop")
+
+
+# Start worker thread
+_worker_thread = threading.Thread(target=_upload_worker, daemon=True, name="steam-upload-worker")
+_worker_thread.start()
+
+
+def queue_upload_artifacts(**kwargs):
+    logger.info("Queuing upload for build: %s_%s", kwargs.get("project_id"), kwargs.get("build_id"))
+    _upload_queue.put(kwargs)

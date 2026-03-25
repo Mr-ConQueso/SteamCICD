@@ -3,39 +3,55 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SteamCICD</title>
+  <title>SteamCICD - Project Manager</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 2rem; max-width: 1100px; background: #fafafa; }
-    .card { border: 1px solid #ddd; border-radius: 12px; padding: 1rem; margin-bottom: 1rem; background: white; }
-    .row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; }
-    .row-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
-    label { display: block; margin-bottom: 0.3rem; font-weight: bold; }
-    input, select { width: 100%; padding: 0.6rem; box-sizing: border-box; }
-    button { padding: 0.7rem 1rem; cursor: pointer; }
-    .flash-success { background: #e8ffe8; padding: 0.75rem; margin-bottom: 1rem; border: 1px solid #a8dca8; }
-    .flash-error { background: #ffe8e8; padding: 0.75rem; margin-bottom: 1rem; border: 1px solid #e0a0a0; }
-    .muted { color: #666; }
-    .depot-list { display: flex; flex-direction: column; gap: 0.75rem; }
-    .depot-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 1rem; align-items: end; }
-    .actions { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
-    .status-pill { display: inline-block; padding: 0.25rem 0.6rem; border-radius: 999px; font-size: 0.9rem; }
-    .ready { background: #e8ffe8; }
-    .not-ready { background: #ffe8e8; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 2rem; max-width: 1200px; background: #f0f2f5; color: #1c1e21; }
+    .card { border: 1px solid #dddfe2; border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem; background: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
+    label { display: block; margin-bottom: 0.5rem; font-weight: 600; font-size: 0.9rem; }
+    input, select, textarea { width: 100%; padding: 0.75rem; box-sizing: border-box; border: 1px solid #dddfe2; border-radius: 6px; font-size: 1rem; }
+    button { padding: 0.75rem 1.25rem; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.9rem; transition: background 0.2s; }
+    .btn-primary { background: #1877f2; color: white; }
+    .btn-primary:hover { background: #166fe5; }
+    .btn-secondary { background: #e4e6eb; color: #4b4f56; }
+    .btn-secondary:hover { background: #d8dadf; }
+    .btn-danger { background: #fa3e3e; color: white; }
+    .btn-danger:hover { background: #e03535; }
+    .btn-success { background: #42b72a; color: white; }
+    .btn-success:hover { background: #36a420; }
+    
+    .flash-success { background: #e7f3ff; color: #1877f2; padding: 1rem; margin-bottom: 1.5rem; border-radius: 8px; border-left: 5px solid #1877f2; }
+    .flash-error { background: #ffebe9; color: #ce0105; padding: 1rem; margin-bottom: 1.5rem; border-radius: 8px; border-left: 5px solid #ce0105; }
+    
+    .muted { color: #65676b; font-size: 0.85rem; margin-top: 0.25rem; }
+    .status-pill { display: inline-block; padding: 0.35rem 0.75rem; border-radius: 999px; font-size: 0.85rem; font-weight: 600; }
+    .ready { background: #e7f3ff; color: #1877f2; }
+    .not-ready { background: #ffebe9; color: #ce0105; }
+    
+    .project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 1.5rem; }
+    .project-card { position: relative; display: flex; flex-direction: column; }
+    .project-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; }
+    .project-title { font-size: 1.25rem; font-weight: 700; margin: 0; }
+    .project-info { font-size: 0.9rem; color: #65676b; margin-bottom: 0.5rem; }
+    .project-depots { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #ebedf0; }
+    .depot-tag { display: inline-block; background: #f0f2f5; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; margin-right: 0.5rem; margin-bottom: 0.5rem; }
+    
+    .tabs { display: flex; margin-bottom: 1rem; border-bottom: 1px solid #dddfe2; }
+    .tab { padding: 1rem 1.5rem; cursor: pointer; border-bottom: 3px solid transparent; font-weight: 600; color: #65676b; }
+    .tab.active { border-bottom-color: #1877f2; color: #1877f2; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    
+    .depot-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 0.75rem; margin-bottom: 0.75rem; align-items: end; }
   </style>
 </head>
 <body>
-  <h1>SteamCICD</h1>
-
-  <div class="card">
-    <strong>Steamworks SDK status:</strong>
-    {% if steamworks_status.ready %}
-      <span class="status-pill ready">Ready</span>
-    {% else %}
-      <span class="status-pill not-ready">Not ready</span>
-    {% endif %}
-    <div class="muted">
-      ContentBuilder: {{ "present" if steamworks_status.sdk_present else "missing" }} |
-      SteamCMD config: {{ "present" if steamworks_status.steamcmd_config_present else "missing" }}
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+    <h1 style="margin: 0;">SteamCICD Dashboard</h1>
+    <div>
+      <span class="status-pill {% if steamworks_status.ready %}ready{% else %}not-ready{% endif %}">
+        Steamworks SDK: {{ 'Ready' if steamworks_status.ready else 'Not Ready' }}
+      </span>
     </div>
   </div>
 
@@ -47,198 +63,261 @@
     {% endif %}
   {% endwith %}
 
-  <div class="card">
-    <h2>1) Upload Steamworks SDK zip</h2>
-    <form method="post" action="/sdk/upload" enctype="multipart/form-data">
-      <label for="sdk_zip">Steamworks SDK zip</label>
-      <input type="file" id="sdk_zip" name="sdk_zip" accept=".zip" required>
-      <p class="muted">Only <code>tools/ContentBuilder</code> will be kept and persisted on disk.</p>
-      <button type="submit">Upload SDK</button>
-    </form>
+  <div class="tabs">
+    <div class="tab active" onclick="showTab('projects')">Projects</div>
+    <div class="tab" onclick="showTab('settings')">Global Settings</div>
+    <div class="tab" onclick="showTab('sdk')">SDK & SteamCMD</div>
   </div>
 
-  <div class="card">
-    <h2>2) Initial SteamCMD login</h2>
+  <!-- PROJECTS TAB -->
+  <div id="projects" class="tab-content active">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+      <h2>Managed Projects</h2>
+      <button class="btn-primary" onclick="document.getElementById('new-project-modal').style.display='block'">+ New Project</button>
+    </div>
 
-    {% set cached = steamworks_status.cached_login %}
-
-    {% if cached %}
-      <div class="flash-success">
-        Login is cached for <strong>{{ steamworks_status.cached_username }}</strong>. You can auto-login without a password.
-      </div>
-    {% endif %}
-
-    {% if pending_login %}
-      <div class="flash-success">
-        A SteamCMD login is pending for <strong>{{ pending_login.username }}</strong>.
-        Enter the Steam Guard code below to finish authorization.
-      </div>
-    {% endif %}
-
-    <form method="post" action="/steamcmd/login" id="steamcmd-login-form">
-      <input type="hidden" name="action" id="steamcmd-action" value="{{ 'complete' if pending_login else 'start' }}">
-
-      <div class="row">
-        <div>
-          <label for="username">Username</label>
-          <input name="username" id="username" value="{{ pending_login.username if pending_login else (steamworks_status.cached_username if cached else '') }}" required>
+    <div class="project-grid">
+      {% for project in projects %}
+      <div class="card project-card" style="opacity: {{ 1 if project.enabled else 0.6 }}">
+        <div class="project-header">
+          <div>
+            <h3 class="project-title">{{ project.name }}</h3>
+            <div class="muted">AppID: {{ project.steam_app_id }}</div>
+          </div>
+          <div style="display: flex; gap: 0.5rem;">
+            <form action="/projects/{{ project.id }}/toggle" method="post">
+              <button type="submit" class="btn-secondary" style="padding: 0.4rem 0.8rem;">
+                {{ 'Disable' if project.enabled else 'Enable' }}
+              </button>
+            </form>
+            <form action="/projects/{{ project.id }}/delete" method="post" onsubmit="return confirm('Are you sure?')">
+              <button type="submit" class="btn-danger" style="padding: 0.4rem 0.8rem;">Delete</button>
+            </form>
+          </div>
         </div>
-        <div>
-          <label for="password">Password</label>
-          <input
-                name="password"
-                id="password"
-                type="password"
-                placeholder="{% if pending_login or cached %}Already submitted{% else %}Use once on first login{% endif %}"
-                {% if pending_login or cached %}disabled{% else %}required{% endif %}
-              >
+        
+        <div class="project-info"><strong>Unity Org:</strong> {{ project.unity_org_id }}</div>
+        <div class="project-info"><strong>Unity Project:</strong> {{ project.unity_project_id }}</div>
+        <div class="project-info"><strong>Steam Branch:</strong> {{ project.steam_set_live or 'default' }}</div>
+        
+        <div class="project-depots">
+          <strong>Depots:</strong>
+          <div style="margin-top: 0.5rem;">
+            {% for depot in project.depots %}
+              <span class="depot-tag">{{ depot.os }}: {{ depot.depot_id }}</span>
+            {% else %}
+              <span class="muted">No depots configured</span>
+            {% endfor %}
+          </div>
         </div>
       </div>
-
-      <div>
-        <label for="steam_guard_code">Steam Guard code</label>
-        <input
-              name="steam_guard_code"
-              id="steam_guard_code"
-              placeholder="{% if pending_login %}Enter the code sent by Steam{% elif cached %}Not required for cached login{% else %}Leave blank until SteamCMD asks for it{% endif %}"
-              {% if pending_login %}autofocus required{% else %}disabled{% endif %}
-            >
+      {% else %}
+      <div class="card" style="grid-column: 1 / -1; text-align: center; padding: 3rem;">
+        <p class="muted">No projects found. Create your first project to start automating!</p>
       </div>
-
-      <p class="muted">
-        Start the login with username + password. If Steam Guard is required, SteamCMD will ask for it and you can
-        submit the code in a second step.
-      </p>
-
-      <div class="actions">
-        <button type="submit" id="steamcmd-submit">
-          {% if pending_login %}Complete SteamCMD Login{% elif cached %}Login (Cached){% else %}Start SteamCMD Login{% endif %}
-        </button>
-      </div>
-    </form>
+      {% endfor %}
+    </div>
   </div>
 
-  <div class="card">
-    <h2>3) Generate SteamPipe VDF files</h2>
-    <form method="post" action="/vdf/generate" id="vdf-form">
-      <div class="row">
-        <div>
-          <label for="appid">appid</label>
-          <input name="appid" id="appid" required>
+  <!-- SETTINGS TAB -->
+  <div id="settings" class="tab-content">
+    <div class="card">
+      <h2>Global Settings</h2>
+      <form action="/settings/global" method="post">
+        <div class="row">
+          <div>
+            <label>Unity API Key</label>
+            <input type="password" name="unity_api_key" value="{{ global_api_key }}" placeholder="ef3fb62e...">
+            <p class="muted">Your personal Unity Cloud Build API Key.</p>
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>SteamCMD Username</label>
+            <input type="text" name="steam_username" value="{{ steam_username }}">
+          </div>
+          <div>
+            <label>SteamCMD Password (Optional)</label>
+            <input type="password" name="steam_password" placeholder="Leave blank to use cached">
+            <p class="muted">Only needed for the first login or if cache expires.</p>
+          </div>
+        </div>
+        <button type="submit" class="btn-primary">Save Global Settings</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- SDK TAB -->
+  <div id="sdk" class="tab-content">
+    <div class="row">
+      <div class="card">
+        <h2>1) Steamworks SDK</h2>
+        <p class="muted">Current status: {{ 'Present' if steamworks_status.sdk_present else 'Missing' }}</p>
+        <form action="/sdk/upload" method="post" enctype="multipart/form-data">
+          <label>Upload SDK Zip</label>
+          <input type="file" name="sdk_zip" accept=".zip" required>
+          <button type="submit" class="btn-secondary" style="margin-top: 1rem;">Upload & Extract</button>
+        </form>
+      </div>
+      
+      <div class="card">
+        <h2>2) SteamCMD Login</h2>
+        {% if steamworks_status.cached_login %}
+          <div class="flash-success" style="padding: 0.5rem 1rem; margin-bottom: 1rem;">
+            ✓ Cached login for <strong>{{ steamworks_status.cached_username }}</strong>
+          </div>
+        {% endif %}
+        
+        <form action="/steamcmd/login" method="post">
+          <input type="hidden" name="action" value="{% if pending_login %}complete{% else %}start{% endif %}">
+          <div class="row">
+            <div>
+              <label>Username</label>
+              <input type="text" name="username" value="{{ pending_login.username if pending_login else steam_username }}" required>
+            </div>
+          </div>
+          {% if not pending_login %}
+          <div class="row">
+            <div>
+              <label>Password</label>
+              <input type="password" name="password" {% if not steamworks_status.cached_login %}required{% endif %}>
+            </div>
+          </div>
+          {% else %}
+          <div class="row">
+            <div>
+              <label>Steam Guard Code</label>
+              <input type="text" name="steam_guard_code" autofocus required>
+            </div>
+          </div>
+          {% endif %}
+          <button type="submit" class="btn-primary">
+            {{ 'Submit Steam Guard Code' if pending_login else ('Refresh Login' if steamworks_status.cached_login else 'Start Login') }}
+          </button>
+        </form>
+      </div>
+    </div>
+    
+    <div class="card">
+      <h2>3) Tools</h2>
+      <div style="display: flex; gap: 1rem;">
+        <button onclick="pollNow()" class="btn-success">Trigger Manual Poll</button>
+        <div id="poll-result" class="muted" style="align-self: center;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- NEW PROJECT MODAL -->
+  <div id="new-project-modal" style="display:none; position:fixed; z-index:100; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.5); overflow:auto; padding-top:50px;">
+    <div class="card" style="width: 80%; max-width: 800px; margin: auto;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
+        <h2 style="margin:0;">Create New Project</h2>
+        <span style="cursor:pointer; font-size:2rem;" onclick="document.getElementById('new-project-modal').style.display='none'">&times;</span>
+      </div>
+      <form action="/projects/create" method="post">
+        <div class="row">
+          <div>
+            <label>Project Nickname</label>
+            <input type="text" name="name" placeholder="My Awesome Game" required>
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>Unity Org ID</label>
+            <input type="text" name="unity_org_id" required>
+          </div>
+          <div>
+            <label>Unity Project ID</label>
+            <input type="text" name="unity_project_id" required>
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>Steam App ID</label>
+            <input type="text" name="steam_app_id" required>
+          </div>
+          <div>
+            <label>Steam Branch (setlive)</label>
+            <input type="text" name="steam_set_live" placeholder="e.g. alpha">
+          </div>
         </div>
         <div>
-          <label for="desc">desc</label>
-          <input name="desc" id="desc" required>
+          <label>Build Description</label>
+          <input type="text" name="steam_desc" value="Automatic CI/CD Build">
         </div>
-      </div>
-      <div>
-        <label for="setlive">setlive</label>
-        <input name="setlive" id="setlive">
-      </div>
-
-      <h3>Depots</h3>
-      <div class="actions">
-        <button type="button" id="add-depot">Add depot</button>
-        <span class="muted">Max 4 depots. Each OS may only be used once.</span>
-      </div>
-
-      <div class="depot-list" id="depot-list"></div>
-
-      <template id="depot-template">
-        <div class="card depot-row">
-          <div>
-            <label>OS</label>
-            <select class="depot-os">
-              <option value="">-- select OS --</option>
-              <option value="Windows">Windows</option>
-              <option value="Linux">Linux</option>
-              <option value="MacOS">MacOS</option>
-              <option value="Android">Android</option>
-            </select>
-          </div>
-          <div>
-            <label>DepotID</label>
-            <input class="depot-id" type="text" placeholder="DepotID">
-          </div>
-          <div>
-            <button type="button" class="remove-depot">Remove</button>
-          </div>
+        
+        <h3 style="margin-top: 1.5rem;">Depots</h3>
+        <div id="depot-container">
+          <!-- Rows added via JS -->
         </div>
-      </template>
-
-      <button type="submit">Generate VDFs</button>
-    </form>
+        <button type="button" class="btn-secondary" onclick="addDepotRow()">+ Add Depot</button>
+        
+        <div style="margin-top: 2rem; display: flex; gap: 1rem; justify-content: flex-end;">
+          <button type="button" class="btn-secondary" onclick="document.getElementById('new-project-modal').style.display='none'">Cancel</button>
+          <button type="submit" class="btn-primary">Create Project</button>
+        </div>
+      </form>
+    </div>
   </div>
 
   <script>
-    const depotList = document.getElementById("depot-list");
-    const depotTemplate = document.getElementById("depot-template");
-    const addDepotBtn = document.getElementById("add-depot");
-    const maxDepots = 4;
-
-    function selectedOSValues() {
-      return [...depotList.querySelectorAll(".depot-os")]
-        .map(el => el.value)
-        .filter(Boolean);
+    function showTab(tabId) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+      document.getElementById(tabId).classList.add('active');
+      if (event && event.currentTarget) {
+        event.currentTarget.classList.add('active');
+      }
     }
 
-    function refreshOSOptions() {
-      const selected = selectedOSValues();
-      depotList.querySelectorAll(".depot-os").forEach(select => {
-        const current = select.value;
-        [...select.options].forEach(opt => {
-          if (!opt.value) return;
-          opt.disabled = selected.includes(opt.value) && opt.value !== current;
-        });
-      });
-    }
-
-    function updateNames() {
-      const rows = depotList.querySelectorAll(".depot-row");
-      rows.forEach((row, index) => {
-        const osSelect = row.querySelector(".depot-os");
-        const idInput = row.querySelector(".depot-id");
-        osSelect.name = `depot_os_${index + 1}`;
-        idInput.name = `depot_id_${index + 1}`;
-      });
-    }
-
+    let depotCount = 0;
     function addDepotRow() {
-      if (depotList.children.length >= maxDepots) {
-        alert("You can add at most 4 depots.");
-        return;
-      }
-
-      const node = depotTemplate.content.cloneNode(true);
-      const row = node.querySelector(".depot-row");
-      const osSelect = node.querySelector(".depot-os");
-      const removeBtn = node.querySelector(".remove-depot");
-
-      osSelect.addEventListener("change", refreshOSOptions);
-
-      removeBtn.addEventListener("click", () => {
-        row.remove();
-        updateNames();
-        refreshOSOptions();
-      });
-
-      depotList.appendChild(node);
-      updateNames();
-      refreshOSOptions();
+      if (depotCount >= 4) return;
+      depotCount++;
+      const container = document.getElementById('depot-container');
+      const row = document.createElement('div');
+      row.className = 'depot-row';
+      row.innerHTML = `
+        <div>
+          <label>OS</label>
+          <select name="depot_os_` + depotCount + `">
+            <option value="Windows">Windows</option>
+            <option value="Linux">Linux</option>
+            <option value="MacOS">MacOS</option>
+            <option value="Android">Android</option>
+          </select>
+        </div>
+        <div>
+          <label>Depot ID</label>
+          <input type="text" name="depot_id_` + depotCount + `" required>
+        </div>
+        <div>
+          <button type="button" class="btn-danger" onclick="this.parentElement.parentElement.remove(); depotCount--;">&times;</button>
+        </div>
+      `;
+      container.appendChild(row);
     }
 
-    addDepotBtn.addEventListener("click", addDepotRow);
+    function pollNow() {
+      const btn = event.target;
+      const resultEl = document.getElementById('poll-result');
+      btn.disabled = true;
+      resultEl.innerText = "Polling projects...";
+      
+      fetch('/poll-now')
+        .then(r => r.json())
+        .then(data => {
+          if (data.error) resultEl.innerText = "Error: " + data.error;
+          else {
+            const count = data.downloaded ? data.downloaded.length : 0;
+            resultEl.innerText = "Success! Processed " + count + " new builds.";
+          }
+        })
+        .catch(e => resultEl.innerText = "Poll failed.")
+        .finally(() => btn.disabled = false);
+    }
 
-    document.getElementById("vdf-form").addEventListener("submit", (event) => {
-      const selected = selectedOSValues();
-      const unique = new Set(selected);
-      if (selected.length !== unique.size) {
-        event.preventDefault();
-        alert("Each OS can only be used once.");
-        return;
-      }
-    });
-
+    // Add first depot row by default
     addDepotRow();
   </script>
 </body>

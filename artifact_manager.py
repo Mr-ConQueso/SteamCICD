@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from config import steamworks_sdk_is_ready
-from uploader import upload_artifacts
+from uploader import queue_upload_artifacts
 
 logger = logging.getLogger(__name__)
 
@@ -83,12 +83,18 @@ def needs_artifact_processing(build_target_id: str, build_number: int) -> bool:
 
 
 def register_and_process_artifact(
+    project_id: str,
     build_target_id: str,
     build_number: int,
     artifact_paths: list[str],
     build_info: dict[str, Any],
+    appid: str,
+    desc: str,
+    setlive: str,
+    depots_config: list[dict[str, str]]
 ) -> None:
-    build_id = _build_id(build_target_id, build_number)
+    # Use a project-specific build ID to avoid collisions
+    full_build_id = f"{project_id}_{build_target_id}_{build_number}"
 
     successful_artifacts = [
         Path(path_str)
@@ -97,23 +103,22 @@ def register_and_process_artifact(
     ]
 
     if not successful_artifacts:
-        logger.warning("No successful artifacts found for build %s", build_id)
+        logger.warning("No successful artifacts found for build %s", full_build_id)
         return
 
     if not steamworks_sdk_is_ready():
-        logger.warning("Steamworks SDK is not ready yet; pausing upload for build %s", build_id)
+        logger.warning("Steamworks SDK is not ready yet; pausing upload for build %s", full_build_id)
         return
 
-    mark_downloaded(build_id)
+    mark_downloaded(full_build_id)
 
-    try:
-        upload_artifacts(build_id, successful_artifacts)
-    except Exception:
-        logger.exception(
-            "SteamCMD upload did not complete for build %s; keeping zip and extracted files for retry",
-            build_id,
-        )
-        raise
-
-    mark_uploaded(build_id)
-    logger.info("Build %s uploaded successfully and local artifact files were cleaned up", build_id)
+    queue_upload_artifacts(
+        project_id=project_id,
+        build_id=f"{build_target_id}_{build_number}",
+        artifact_paths=successful_artifacts,
+        appid=appid,
+        desc=desc,
+        setlive=setlive,
+        depots_config=depots_config
+    )
+    logger.info("Build %s has been queued for Steam upload", full_build_id)
