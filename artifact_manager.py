@@ -3,49 +3,92 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from config import steamworks_sdk_is_ready
 from uploader import upload_artifacts
 
 logger = logging.getLogger(__name__)
 
-# Store metadata in the downloads folder
 METADATA_FILE = Path("downloads/metadata.json")
 
 
-def load_metadata() -> dict[str, Any]:
+def load_metadata() -> dict[str, list[str]]:
     if METADATA_FILE.exists():
         try:
             with open(METADATA_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except json.JSONDecodeError:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError):
             logger.warning("Corrupted metadata file. Starting fresh.")
-    return {}
+            data = {}
+    else:
+        data = {}
+
+    downloaded = data.get("downloaded")
+    uploaded = data.get("uploaded")
+
+    return {
+        "downloaded": downloaded if isinstance(downloaded, list) else [],
+        "uploaded": uploaded if isinstance(uploaded, list) else [],
+    }
 
 
-def save_metadata(metadata: dict[str, Any]) -> None:
+def save_metadata(metadata: dict[str, list[str]]) -> None:
+    normalized = {
+        "downloaded": sorted(set(metadata.get("downloaded", []))),
+        "uploaded": sorted(set(metadata.get("uploaded", []))),
+    }
     METADATA_FILE.parent.mkdir(parents=True, exist_ok=True)
     with open(METADATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(metadata, f, indent=4)
+        json.dump(normalized, f, indent=4)
+
+
+def _build_id(build_target_id: str, build_number: int) -> str:
+    return f"{build_target_id}_{build_number}"
+
+
+def mark_downloaded(build_id: str) -> None:
+    metadata = load_metadata()
+    if build_id not in metadata["downloaded"]:
+        metadata["downloaded"].append(build_id)
+        save_metadata(metadata)
+        logger.info("Recorded downloaded build %s", build_id)
+
+
+def mark_uploaded(build_id: str) -> None:
+    metadata = load_metadata()
+    if build_id not in metadata["uploaded"]:
+        metadata["uploaded"].append(build_id)
+        save_metadata(metadata)
+        logger.info("Recorded uploaded build %s", build_id)
 
 
 def is_already_downloaded(build_target_id: str, build_number: int) -> bool:
+    build_id = _build_id(build_target_id, build_number)
     metadata = load_metadata()
-    build_id = f"{build_target_id}_{build_number}"
-    build_entry = metadata.get(build_id)
-    return isinstance(build_entry, dict) and build_entry.get("status") == "uploaded"
+    return build_id in metadata["downloaded"] or build_id in metadata["uploaded"]
+
+
+def is_already_uploaded(build_target_id: str, build_number: int) -> bool:
+    build_id = _build_id(build_target_id, build_number)
+    metadata = load_metadata()
+    return build_id in metadata["uploaded"]
+
+
+def has_uploaded_build(build_id: str) -> bool:
+    metadata = load_metadata()
+    return build_id in metadata["uploaded"]
+
+
+def needs_artifact_processing(build_target_id: str, build_number: int) -> bool:
+    return not is_already_uploaded(build_target_id, build_number)
 
 
 def register_and_process_artifact(
-        build_target_id: str,
-        build_number: int,
-        artifact_paths: list[str],
-        build_info: dict[str, Any]
+    build_target_id: str,
+    build_number: int,
+    artifact_paths: list[str],
+    build_info: dict[str, Any],
 ) -> None:
-    metadata = load_metadata()
-    build_id = f"{build_target_id}_{build_number}"
-
-    target_parts = build_target_id.split("-")
-    os_name = target_parts[1] if len(target_parts) > 1 else "unknown"
-    arch = "64-bit" if "64" in build_target_id else "32-bit" if "32" in build_target_id else "unknown"
+    build_id = _build_id(build_target_id, build_number)
 
     successful_artifacts = [
         Path(path_str)
@@ -53,23 +96,15 @@ def register_and_process_artifact(
         if not path_str.startswith("FAILED:")
     ]
 
-    metadata[build_id] = {
-        "build_target_id": build_target_id,
-        "build_number": build_number,
-        "artifacts": [str(path) for path in successful_artifacts],
-        "os": os_name,
-        "architecture": arch,
-        "build_date": build_info.get("created", "unknown"),
-        "status": "downloaded",
-    }
-    save_metadata(metadata)
-    logger.info("Registered metadata for build %s", build_id)
-
     if not successful_artifacts:
         logger.warning("No successful artifacts found for build %s", build_id)
-        metadata[build_id]["status"] = "no_artifacts"
-        save_metadata(metadata)
         return
+
+    if not steamworks_sdk_is_ready():
+        logger.warning("Steamworks SDK is not ready yet; pausing upload for build %s", build_id)
+        return
+
+    mark_downloaded(build_id)
 
     try:
         upload_artifacts(build_id, successful_artifacts)
@@ -78,11 +113,7 @@ def register_and_process_artifact(
             "SteamCMD upload did not complete for build %s; keeping zip and extracted files for retry",
             build_id,
         )
-        metadata[build_id]["status"] = "upload_failed"
-        save_metadata(metadata)
         raise
 
-    metadata[build_id]["status"] = "uploaded"
-    metadata[build_id]["artifacts"] = []
-    save_metadata(metadata)
+    mark_uploaded(build_id)
     logger.info("Build %s uploaded successfully and local artifact files were cleaned up", build_id)

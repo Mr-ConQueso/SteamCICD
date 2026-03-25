@@ -1,6 +1,7 @@
 /downloads/
-/steamworks_sdk_164/
+/steamworks_sdk/
 .env
 /.idea
 /__pycache__
 /steamworks_sdk_164
+/Unity DevOps Build Automation.html
